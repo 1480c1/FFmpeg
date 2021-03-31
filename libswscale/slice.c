@@ -293,8 +293,13 @@ int ff_init_filters(SwsContext * c)
         goto cleanup;
     }
 
-    res = alloc_slice(&c->slice[0], c->srcFormat, c->srcH, c->chrSrcH, c->chrSrcHSubSample, c->chrSrcVSubSample, 0);
-    if (res < 0) goto cleanup;
+    if(!c->parent) {
+        res = alloc_slice(&c->slice[0], c->srcFormat, c->srcH, c->chrSrcH, c->chrSrcHSubSample, c->chrSrcVSubSample, 0);
+        if (res < 0) goto cleanup;
+    }
+    else {
+        memcpy(&c->slice[0],&c->parent->slice[0],sizeof(SwsSlice));
+    }
     for (i = 1; i < c->numSlice-2; ++i) {
         res = alloc_slice(&c->slice[i], c->srcFormat, lumBufSize, chrBufSize, c->chrSrcHSubSample, c->chrSrcVSubSample, 0);
         if (res < 0) goto cleanup;
@@ -311,8 +316,13 @@ int ff_init_filters(SwsContext * c)
 
     // vertical scaler output
     ++i;
-    res = alloc_slice(&c->slice[i], c->dstFormat, c->dstH, c->chrDstH, c->chrDstHSubSample, c->chrDstVSubSample, 0);
-    if (res < 0) goto cleanup;
+    if(!c->parent) {
+        res = alloc_slice(&c->slice[i], c->dstFormat, c->dstH, c->chrDstH, c->chrDstHSubSample, c->chrDstVSubSample, 0);
+        if (res < 0) goto cleanup;
+    }
+    else {
+        memcpy(&c->slice[i],&c->parent->slice[i],sizeof(SwsSlice));
+    }
 
     index = 0;
     srcIdx = 0;
@@ -325,6 +335,10 @@ int ff_init_filters(SwsContext * c)
     }
 
     if (need_lum_conv) {
+#if HAVE_THREADS
+    /* Not support Multitreading for lumia convert */
+    c->sw_nbthreads = 0;
+#endif
         res = ff_init_desc_fmt_convert(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], pal);
         if (res < 0) goto cleanup;
         c->desc[index].alpha = c->needAlpha;
@@ -389,8 +403,14 @@ int ff_free_filters(SwsContext *c)
     }
 
     if (c->slice) {
-        for (i = 0; i < c->numSlice; ++i)
-            free_slice(&c->slice[i]);
+        if(c->parent) {
+            for (i = 1; i < c->numSlice-1; ++i)
+                free_slice(&c->slice[i]);
+        }
+        else {
+            for (i = 0; i < c->numSlice; ++i)
+                free_slice(&c->slice[i]);
+        }
         av_freep(&c->slice);
     }
     return 0;
