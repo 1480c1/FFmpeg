@@ -27,7 +27,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h>
+
 #if HAVE_MMAP
 #include <sys/mman.h>
 #if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
@@ -55,6 +55,7 @@
 #include "libavutil/ppc/cpu.h"
 #include "libavutil/x86/asm.h"
 #include "libavutil/x86/cpu.h"
+#include "libavutil/thread.h"
 
 #include "rgb2rgb.h"
 #include "swscale.h"
@@ -1215,7 +1216,7 @@ static void swscale_thread_deinit(SwsContext *c)
     }
 
     for (i = 0; i < c->sw_nbthreads; ++i) {
-        if (c->threads_ctx[i].f_thread)
+        if (c->threads_ctx[i].status)
             pthread_join(c->threads_ctx[i].f_thread, NULL);
     }
 
@@ -1254,6 +1255,7 @@ static int swscale_thread_init(SwsContext *c)
 
     for (i = 0; i < c->sw_nbthreads; ++i) {
             ctx = &c->threads_ctx[i];
+            ctx->status = 0;
             ctx->t_work = 0;
             ctx->t_end = 0;
             pthread_mutex_init(&ctx->process_mutex, NULL);
@@ -1282,6 +1284,8 @@ static int swscale_thread_init(SwsContext *c)
                 ret = AVERROR(ret);
                 goto fail;
             }
+        } else {
+            ctx->status = 1;
         }
     }
 
