@@ -1761,6 +1761,11 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
         if (!FF_ALLOCZ_TYPED_ARRAY(c->dither_error[i], c->dstW + 2))
             goto nomem;
 
+    c->frame_src = av_frame_alloc();
+    c->frame_dst = av_frame_alloc();
+    if (!c->frame_src || !c->frame_dst)
+        goto nomem;
+
     c->needAlpha = (CONFIG_SWSCALE_ALPHA && isALPHA(c->srcFormat) && isALPHA(c->dstFormat)) ? 1 : 0;
 
     // 64 / c->scalingBpp is the same as 16 / sizeof(scaling_intermediate)
@@ -2250,6 +2255,11 @@ void sws_freeContext(SwsContext *c)
     for (i = 0; i < 4; i++)
         av_freep(&c->dither_error[i]);
 
+    av_frame_free(&c->frame_src);
+    av_frame_free(&c->frame_dst);
+
+    av_freep(&c->src_ranges.ranges);
+
     av_freep(&c->vLumFilter);
     av_freep(&c->vChrFilter);
     av_freep(&c->hLumFilter);
@@ -2363,4 +2373,64 @@ struct SwsContext *sws_getCachedContext(struct SwsContext *context, int srcW,
         }
     }
     return context;
+}
+
+int ff_range_add(RangeList *rl, unsigned int start, unsigned int len)
+{
+    Range *tmp;
+    unsigned int idx;
+
+    /* find the first existing range after the new one */
+    for (idx = 0; idx < rl->nb_ranges; idx++)
+        if (rl->ranges[idx].start > start)
+            break;
+
+    /* check for overlap */
+    if (idx > 0) {
+        Range *prev = &rl->ranges[idx - 1];
+        if (prev->start + prev->len > start)
+            return AVERROR(EINVAL);
+    }
+    if (idx < rl->nb_ranges) {
+        Range *next = &rl->ranges[idx];
+        if (start + len > next->start)
+            return AVERROR(EINVAL);
+    }
+
+    tmp = av_fast_realloc(rl->ranges, &rl->ranges_allocated,
+                          (rl->nb_ranges + 1) * sizeof(*rl->ranges));
+    if (!tmp)
+        return AVERROR(ENOMEM);
+    rl->ranges = tmp;
+
+    memmove(rl->ranges + idx + 1, rl->ranges + idx,
+            sizeof(*rl->ranges) * (rl->nb_ranges - idx));
+    rl->ranges[idx].start = start;
+    rl->ranges[idx].len   = len;
+    rl->nb_ranges++;
+
+    /* merge ranges */
+    if (idx > 0) {
+        Range *prev = &rl->ranges[idx - 1];
+        Range *cur  = &rl->ranges[idx];
+        if (prev->start + prev->len == cur->start) {
+            prev->len += cur->len;
+            memmove(rl->ranges + idx - 1, rl->ranges + idx,
+                    sizeof(*rl->ranges) * (rl->nb_ranges - idx));
+            rl->nb_ranges--;
+            idx--;
+        }
+    }
+    if (idx < rl->nb_ranges - 1) {
+        Range *cur  = &rl->ranges[idx];
+        Range *next = &rl->ranges[idx + 1];
+        if (cur->start + cur->len == next->start) {
+            cur->len += next->len;
+            memmove(rl->ranges + idx, rl->ranges + idx + 1,
+                    sizeof(*rl->ranges) * (rl->nb_ranges - idx - 1));
+            rl->nb_ranges--;
+        }
+    }
+
+    return 0;
 }
