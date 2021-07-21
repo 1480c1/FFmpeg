@@ -650,6 +650,16 @@ typedef struct SwsContext {
     // then passed as input to further conversion
     uint8_t     *xyz_scratch;
     unsigned int xyz_scratch_allocated;
+    
+     /*
+     * Parent set if work on copy of SwsContext for multithreading.
+     */
+    struct SwsContext *parent;
+
+    /*
+     * Temporary variable to processing swscale_step().
+     */
+    SwsContextStep step_param;
 
 #if HAVE_THREADS
     int is_threads_prepared;
